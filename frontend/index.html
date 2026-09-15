@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SOC 2 Evidence Collector</title>
+<style>
+  :root {
+    --pass: #1a7f37;
+    --fail: #cf222e;
+    --review: #9a6700;
+    --bg: #f6f8fa;
+    --border: #d0d7de;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); margin: 0; padding: 2rem; color: #1f2328; }
+  h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+  .subtitle { color: #57606a; margin-bottom: 2rem; }
+  .controls { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
+  .controls input { padding: 0.5rem; border: 1px solid var(--border); border-radius: 6px; min-width: 200px; }
+  button { padding: 0.5rem 1rem; border-radius: 6px; border: 1px solid var(--border); background: #1f2328; color: white; cursor: pointer; font-weight: 600; }
+  button:hover { opacity: 0.85; }
+  .section { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; }
+  .section h2 { margin-top: 0; font-size: 1.1rem; }
+  table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+  th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+  th { color: #57606a; font-weight: 600; }
+  .status { padding: 0.15rem 0.5rem; border-radius: 12px; font-size: 0.75rem; font-weight: 600; color: white; }
+  .status.PASS { background: var(--pass); }
+  .status.FAIL { background: var(--fail); }
+  .status.REVIEW { background: var(--review); }
+  .summary { color: #57606a; font-size: 0.9rem; margin-bottom: 0.5rem; }
+  .empty { color: #57606a; font-style: italic; }
+</style>
+</head>
+<body>
+  <h1>SOC 2 Evidence Collector</h1>
+  <p class="subtitle">Automated audit evidence collection for small teams without dedicated compliance staff.</p>
+
+  <div class="controls">
+    <button onclick="runAWSCollection()">Run AWS Collection</button>
+    <input id="ghOrg" placeholder="GitHub org name" />
+    <input id="ghToken" placeholder="GitHub token" type="password" />
+    <button onclick="runGitHubCollection()">Run GitHub Collection</button>
+    <button onclick="loadReports()">Refresh</button>
+  </div>
+
+  <div id="aws-section" class="section">
+    <h2>AWS Evidence</h2>
+    <div class="empty">No data yet — click "Run AWS Collection" (requires AWS credentials configured on the server).</div>
+  </div>
+
+  <div id="github-section" class="section">
+    <h2>GitHub Evidence</h2>
+    <div class="empty">No data yet — enter an org and token, then click "Run GitHub Collection".</div>
+  </div>
+
+<script>
+const API = "";
+
+function renderTable(details) {
+  if (!details || details.length === 0) return "<p class='empty'>No findings.</p>";
+  if (details[0].error) return `<p class='empty'>Error: ${details[0].error}</p>`;
+
+  const keys = Object.keys(details[0]).filter(k => k !== "control");
+  let html = "<table><thead><tr>";
+  keys.forEach(k => html += `<th>${k}</th>`);
+  html += "</tr></thead><tbody>";
+  details.forEach(row => {
+    html += "<tr>";
+    keys.forEach(k => {
+      let val = row[k];
+      if (k === "status") {
+        val = `<span class="status ${val}">${val}</span>`;
+      } else if (typeof val === "boolean") {
+        val = val ? "Yes" : "No";
+      }
+      html += `<td>${val}</td>`;
+    });
+    html += "</tr>";
+  });
+  html += "</tbody></table>";
+  return html;
+}
+
+function renderSection(sectionId, title, report) {
+  const el = document.getElementById(sectionId);
+  if (!report) {
+    el.innerHTML = `<h2>${title}</h2><p class="empty">No data yet.</p>`;
+    return;
+  }
+  let html = `<h2>${title}</h2><p class="summary">Collected at: ${report.collected_at}</p>`;
+  Object.entries(report).forEach(([key, value]) => {
+    if (key === "collected_at") return;
+    html += `<h3>${key.replace(/_/g, " ")}</h3>`;
+    html += `<p class="summary">${value.summary || ""}</p>`;
+    html += renderTable(value.details);
+  });
+  el.innerHTML = html;
+}
+
+async function runAWSCollection() {
+  document.getElementById("aws-section").innerHTML = "<h2>AWS Evidence</h2><p class='empty'>Running...</p>";
+  try {
+    const resp = await fetch(`${API}/api/collect/aws`, { method: "POST" });
+    const data = await resp.json();
+    renderSection("aws-section", "AWS Evidence", data);
+  } catch (e) {
+    document.getElementById("aws-section").innerHTML = `<h2>AWS Evidence</h2><p class='empty'>Error: ${e}</p>`;
+  }
+}
+
+async function runGitHubCollection() {
+  const org = document.getElementById("ghOrg").value;
+  const token = document.getElementById("ghToken").value;
+  if (!org || !token) { alert("Enter both org and token."); return; }
+  document.getElementById("github-section").innerHTML = "<h2>GitHub Evidence</h2><p class='empty'>Running...</p>";
+  try {
+    const resp = await fetch(`${API}/api/collect/github?org=${encodeURIComponent(org)}&token=${encodeURIComponent(token)}`, { method: "POST" });
+    const data = await resp.json();
+    renderSection("github-section", "GitHub Evidence", data);
+  } catch (e) {
+    document.getElementById("github-section").innerHTML = `<h2>GitHub Evidence</h2><p class='empty'>Error: ${e}</p>`;
+  }
+}
+
+async function loadReports() {
+  const resp = await fetch(`${API}/api/reports/latest`);
+  const data = await resp.json();
+  renderSection("aws-section", "AWS Evidence", data.aws);
+  renderSection("github-section", "GitHub Evidence", data.github);
+}
+
+loadReports();
+</script>
+</body>
+</html>
