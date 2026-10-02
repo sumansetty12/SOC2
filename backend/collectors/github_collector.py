@@ -27,11 +27,19 @@ class GitHubEvidenceCollector:
         }
 
     def _get_repos(self) -> list:
+        # Try as an organization first; fall back to a personal user account
+        # if GitHub returns 404 (i.e. `org` is actually a username, not an Org).
         resp = requests.get(
             f"{self.base_url}/orgs/{self.org}/repos",
             headers=self.headers,
             params={"per_page": 100},
         )
+        if resp.status_code == 404:
+            resp = requests.get(
+                f"{self.base_url}/users/{self.org}/repos",
+                headers=self.headers,
+                params={"per_page": 100},
+            )
         resp.raise_for_status()
         return resp.json()
 
