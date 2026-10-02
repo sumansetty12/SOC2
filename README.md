@@ -23,6 +23,28 @@ Early-stage startups and small engineering teams (typically 2-50 engineers) purs
 
 All checks are **read-only** — this tool never modifies your AWS or GitHub configuration.
 
+## Real-world validation
+
+This tool has been run end-to-end against real (not synthetic) AWS and GitHub accounts to confirm it works correctly, including using its own findings to drive actual remediation:
+
+**Before:**
+
+| Control | Result |
+|---|---|
+| IAM MFA enforcement (CC6.1) | 0/16 users had MFA enabled |
+| CloudTrail logging (CC7.2) | 1 trail evaluated — logging enabled, multi-region, log file validation on — **PASS** |
+| S3 public access block (CC6.6) | 0/6 buckets had public access blocked |
+| Branch protection (CC8.1) | 0/14 repositories required PR review on their default branch |
+
+**After remediating one finding on each platform (enabling MFA on one IAM user, adding a branch-protection rule to one repository) and re-running the collector:**
+
+| Control | Before | After |
+|---|---|---|
+| IAM MFA — target user | FAIL | **PASS** |
+| Branch protection — target repository | FAIL | **PASS** |
+
+This confirms the tool correctly detects both the initial gap and the fix, rather than just returning a static or hardcoded result.
+
 ## Architecture
 
 ```
