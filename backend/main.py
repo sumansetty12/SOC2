@@ -13,10 +13,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 
+from pydantic import BaseModel
 from collectors.aws_collector import AWSEvidenceCollector
 from collectors.github_collector import GitHubEvidenceCollector
+import db as history_db
+import monitoring
 
 app = FastAPI(title="SOC 2 Evidence Collector")
+history_db.init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -66,6 +70,48 @@ def get_latest_reports():
             with open(path) as f:
                 result[source] = json.load(f)
     return result
+
+
+class MonitoringStartRequest(BaseModel):
+    region: str = "us-east-1"
+    github_org: str | None = None
+    github_token: str | None = None
+    poll_interval_minutes: int = 5
+    lookback_minutes: int = 15
+
+
+@app.post("/api/monitoring/start")
+def start_monitoring(req: MonitoringStartRequest):
+    try:
+        monitoring.start(
+            region=req.region,
+            github_org=req.github_org,
+            github_token=req.github_token,
+            poll_interval_minutes=req.poll_interval_minutes,
+            lookback_minutes=req.lookback_minutes,
+        )
+        return monitoring.get_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start monitoring: {str(e)}")
+
+
+@app.post("/api/monitoring/stop")
+def stop_monitoring():
+    monitoring.stop()
+    return monitoring.get_status()
+
+
+@app.get("/api/monitoring/status")
+def monitoring_status():
+    return monitoring.get_status()
+
+
+@app.get("/api/monitoring/history")
+def monitoring_history(limit: int = 20):
+    return {
+        "poll_runs": history_db.get_recent_polls(limit),
+        "check_history": history_db.get_check_history(limit),
+    }
 
 
 def _save_report(source: str, report: dict):

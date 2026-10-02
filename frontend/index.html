@@ -53,6 +53,22 @@
     <div class="empty">No data yet — enter an org and token, then click "Run GitHub Collection".</div>
   </div>
 
+  <div class="section">
+    <h2>Continuous Monitoring</h2>
+    <p class="summary">Polls CloudTrail for SOC2-relevant AWS activity and GitHub branch-protection changes on an interval, and only re-checks when something actually changed — not a blind full re-scan every time.</p>
+    <div class="controls">
+      <input id="monPollInterval" type="number" min="1" value="5" style="min-width:80px" title="Poll interval (minutes)" />
+      <span style="align-self:center;color:#57606a;font-size:0.9rem">min interval</span>
+      <input id="monLookback" type="number" min="1" value="15" style="min-width:80px" title="Lookback window (minutes)" />
+      <span style="align-self:center;color:#57606a;font-size:0.9rem">min lookback</span>
+      <button onclick="startMonitoring()">Start Monitoring</button>
+      <button onclick="stopMonitoring()">Stop Monitoring</button>
+      <button onclick="loadMonitoringHistory()">Refresh History</button>
+    </div>
+    <div id="monitoring-status" class="summary">Status: not yet checked.</div>
+    <div id="monitoring-history"><p class="empty">No poll history yet.</p></div>
+  </div>
+
 <script>
 const API = "";
 
@@ -129,7 +145,92 @@ async function loadReports() {
   renderSection("github-section", "GitHub Evidence", data.github);
 }
 
+async function startMonitoring() {
+  const org = document.getElementById("ghOrg").value;
+  const token = document.getElementById("ghToken").value;
+  const pollInterval = parseInt(document.getElementById("monPollInterval").value, 10) || 5;
+  const lookback = parseInt(document.getElementById("monLookback").value, 10) || 15;
+
+  const body = {
+    region: "us-east-1",
+    poll_interval_minutes: pollInterval,
+    lookback_minutes: lookback,
+  };
+  if (org && token) {
+    body.github_org = org;
+    body.github_token = token;
+  }
+
+  document.getElementById("monitoring-status").innerText = "Starting...";
+  try {
+    const resp = await fetch(`${API}/api/monitoring/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+    renderMonitoringStatus(data);
+  } catch (e) {
+    document.getElementById("monitoring-status").innerText = `Error starting monitoring: ${e}`;
+  }
+}
+
+async function stopMonitoring() {
+  try {
+    const resp = await fetch(`${API}/api/monitoring/stop`, { method: "POST" });
+    const data = await resp.json();
+    renderMonitoringStatus(data);
+  } catch (e) {
+    document.getElementById("monitoring-status").innerText = `Error stopping monitoring: ${e}`;
+  }
+}
+
+function renderMonitoringStatus(status) {
+  const running = status.running ? "RUNNING" : "STOPPED";
+  const gh = status.github_monitoring_active ? "AWS + GitHub" : "AWS only";
+  const lastPoll = status.last_poll_at || "never";
+  document.getElementById("monitoring-status").innerHTML =
+    `Status: <strong>${running}</strong> (${gh}) — polling every ${status.poll_interval_minutes} min, ` +
+    `${status.lookback_minutes} min lookback window — last poll: ${lastPoll}`;
+}
+
+async function loadMonitoringHistory() {
+  const el = document.getElementById("monitoring-history");
+  try {
+    const resp = await fetch(`${API}/api/monitoring/history`);
+    const data = await resp.json();
+
+    let html = "<h3>Detected changes (triggered re-checks)</h3>";
+    if (!data.check_history || data.check_history.length === 0) {
+      html += "<p class='empty'>No changes detected yet — this is expected if nothing in your AWS/GitHub setup has changed since monitoring started.</p>";
+    } else {
+      html += "<table><thead><tr><th>Checked at</th><th>Source</th><th>Trigger</th><th>Summary</th></tr></thead><tbody>";
+      data.check_history.forEach(row => {
+        html += `<tr><td>${row.checked_at}</td><td>${row.source}</td><td>${row.trigger_reason}</td><td>${row.summary}</td></tr>`;
+      });
+      html += "</tbody></table>";
+    }
+
+    html += "<h3>Poll log</h3>";
+    if (!data.poll_runs || data.poll_runs.length === 0) {
+      html += "<p class='empty'>No polls recorded yet.</p>";
+    } else {
+      html += "<table><thead><tr><th>Polled at</th><th>Source</th><th>Events found</th><th>Triggered re-check?</th></tr></thead><tbody>";
+      data.poll_runs.forEach(row => {
+        html += `<tr><td>${row.polled_at}</td><td>${row.source}</td><td>${row.events_found}</td><td>${row.triggered_recheck ? "Yes" : "No"}</td></tr>`;
+      });
+      html += "</tbody></table>";
+    }
+
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = `<p class='empty'>Error loading history: ${e}</p>`;
+  }
+}
+
 loadReports();
+loadMonitoringHistory();
+fetch(`${API}/api/monitoring/status`).then(r => r.json()).then(renderMonitoringStatus).catch(() => {});
 </script>
 </body>
 </html>
