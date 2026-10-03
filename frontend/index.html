@@ -93,9 +93,19 @@ function renderTable(details, source, category) {
   if (details[0].error) return `<p class='empty'>Error: ${details[0].error}</p>`;
 
   const keys = Object.keys(details[0]).filter(k => k !== "control");
-  let html = "<table><thead><tr>";
+  const anyNeedsGuidance = details.some(r => r.status === "FAIL" || r.status === "REVIEW");
+
+  let html = "";
+  if (anyNeedsGuidance && source && category) {
+    const tableGuidanceId = `table-guidance-${guidanceRowCounter++}`;
+    html += `<div id="${tableGuidanceId}" data-key="${source}:${category}" style="font-size:0.9rem;background:#f6f8fa;border:1px solid var(--border);border-radius:6px;padding:0.75rem;margin-bottom:0.75rem">
+      <strong>How to fix this:</strong> ${getFreeGuidanceText(source, category)}
+    </div>`;
+  }
+
+  html += "<table><thead><tr>";
   keys.forEach(k => html += `<th>${k}</th>`);
-  html += "<th>Guidance</th></tr></thead><tbody>";
+  html += "<th>AI-tailored guidance</th></tr></thead><tbody>";
   details.forEach(row => {
     const needsGuidance = row.status === "FAIL" || row.status === "REVIEW";
     html += "<tr>";
@@ -113,8 +123,8 @@ function renderTable(details, source, category) {
       const rowId = `guidance-${guidanceRowCounter++}`;
       const findingJson = encodeURIComponent(JSON.stringify(row));
       html += `<td>
-        <div id="${rowId}-free" data-key="${source}:${category}" style="font-size:0.85rem;color:#1f2328;max-width:320px">${getFreeGuidanceText(source, category)}</div>
-        <button style="margin-top:0.3rem;font-size:0.8rem;padding:0.2rem 0.5rem" onclick="getAIGuidance('${rowId}', '${source}', '${category}', '${findingJson}')">AI-tailor this</button>
+        <div id="${rowId}-ai" style="font-size:0.85rem;color:#1f2328;max-width:320px"></div>
+        <button style="font-size:0.8rem;padding:0.2rem 0.5rem" onclick="getAIGuidance('${rowId}', '${source}', '${category}', '${findingJson}')">AI-tailor this</button>
       </td>`;
     } else {
       html += "<td></td>";
@@ -151,8 +161,8 @@ async function getAIGuidance(rowId, source, category, findingJsonEncoded) {
   const provider = document.getElementById("llmProvider").value;
   if (!apiKey) { alert("Enter your API key above to use AI-tailored guidance."); return; }
   const finding = JSON.parse(decodeURIComponent(findingJsonEncoded));
-  const freeDiv = document.getElementById(`${rowId}-free`);
-  freeDiv.innerText = `Generating AI guidance (${provider})...`;
+  const aiDiv = document.getElementById(`${rowId}-ai`);
+  aiDiv.innerText = `Generating AI guidance (${provider})...`;
   try {
     const resp = await fetch(`${API}/api/remediation/ai`, {
       method: "POST",
@@ -161,12 +171,12 @@ async function getAIGuidance(rowId, source, category, findingJsonEncoded) {
     });
     const data = await resp.json();
     if (data.guidance) {
-      freeDiv.innerHTML = `<strong>AI:</strong> ${data.guidance}`;
+      aiDiv.innerHTML = `<strong>AI:</strong> ${data.guidance}`;
     } else {
-      freeDiv.innerText = `Error: ${data.detail || "unknown error"}`;
+      aiDiv.innerText = `Error: ${data.detail || "unknown error"}`;
     }
   } catch (e) {
-    freeDiv.innerText = `Error: ${e}`;
+    aiDiv.innerText = `Error: ${e}`;
   }
 }
 
