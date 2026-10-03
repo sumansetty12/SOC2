@@ -18,6 +18,7 @@ from collectors.aws_collector import AWSEvidenceCollector
 from collectors.github_collector import GitHubEvidenceCollector
 import db as history_db
 import monitoring
+import remediation
 
 app = FastAPI(title="SOC 2 Evidence Collector")
 history_db.init_db()
@@ -112,6 +113,44 @@ def monitoring_history(limit: int = 20):
         "poll_runs": history_db.get_recent_polls(limit),
         "check_history": history_db.get_check_history(limit),
     }
+
+
+@app.get("/api/remediation/free")
+def remediation_free(source: str, category: str):
+    return {"guidance": remediation.get_free_guidance(source, category)}
+
+
+class AIRemediationRequest(BaseModel):
+    source: str
+    category: str
+    finding_detail: dict
+    api_key: str
+
+
+@app.post("/api/remediation/ai")
+def remediation_ai(req: AIRemediationRequest):
+    result = remediation.get_ai_guidance(req.source, req.category, req.finding_detail, req.api_key)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+class ReportRequest(BaseModel):
+    api_key: str
+
+
+@app.post("/api/report/generate")
+def generate_report(req: ReportRequest):
+    reports = get_latest_reports()
+    aws_report = reports.get("aws", {})
+    github_report = reports.get("github", {})
+    if not aws_report and not github_report:
+        raise HTTPException(status_code=400, detail="No AWS or GitHub evidence collected yet — run a collection first.")
+
+    result = remediation.generate_security_report(aws_report, github_report, req.api_key)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 
 def _save_report(source: str, report: dict):

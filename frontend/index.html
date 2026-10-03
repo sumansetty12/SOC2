@@ -54,6 +54,16 @@
   </div>
 
   <div class="section">
+    <h2>AI-Enhanced Guidance (optional)</h2>
+    <p class="summary">Every failing finding below already includes free, specific fix-it guidance. If you provide your own Anthropic API key, you can also get AI-tailored guidance per finding and a full plain-English executive report — entirely optional, never stored.</p>
+    <div class="controls">
+      <input id="anthropicKey" placeholder="Anthropic API key (optional)" type="password" style="min-width:320px" />
+      <button onclick="generateReport()">Generate Executive Report</button>
+    </div>
+    <div id="report-output"></div>
+  </div>
+
+  <div class="section">
     <h2>Continuous Monitoring</h2>
     <p class="summary">Polls CloudTrail for SOC2-relevant AWS activity and GitHub branch-protection changes on an interval, and only re-checks when something actually changed — not a blind full re-scan every time.</p>
     <div class="controls">
@@ -72,15 +82,18 @@
 <script>
 const API = "";
 
-function renderTable(details) {
+let guidanceRowCounter = 0;
+
+function renderTable(details, source, category) {
   if (!details || details.length === 0) return "<p class='empty'>No findings.</p>";
   if (details[0].error) return `<p class='empty'>Error: ${details[0].error}</p>`;
 
   const keys = Object.keys(details[0]).filter(k => k !== "control");
   let html = "<table><thead><tr>";
   keys.forEach(k => html += `<th>${k}</th>`);
-  html += "</tr></thead><tbody>";
+  html += "<th>Guidance</th></tr></thead><tbody>";
   details.forEach(row => {
+    const needsGuidance = row.status === "FAIL" || row.status === "REVIEW";
     html += "<tr>";
     keys.forEach(k => {
       let val = row[k];
@@ -91,14 +104,92 @@ function renderTable(details) {
       }
       html += `<td>${val}</td>`;
     });
+
+    if (needsGuidance && source && category) {
+      const rowId = `guidance-${guidanceRowCounter++}`;
+      const findingJson = encodeURIComponent(JSON.stringify(row));
+      html += `<td>
+        <div id="${rowId}-free" data-key="${source}:${category}" style="font-size:0.85rem;color:#1f2328;max-width:320px">${getFreeGuidanceText(source, category)}</div>
+        <button style="margin-top:0.3rem;font-size:0.8rem;padding:0.2rem 0.5rem" onclick="getAIGuidance('${rowId}', '${source}', '${category}', '${findingJson}')">AI-tailor this</button>
+      </td>`;
+    } else {
+      html += "<td></td>";
+    }
     html += "</tr>";
   });
   html += "</tbody></table>";
   return html;
 }
 
+const FREE_GUIDANCE_CACHE = {};
+
+function getFreeGuidanceText(source, category) {
+  const key = `${source}:${category}`;
+  if (!FREE_GUIDANCE_CACHE[key]) {
+    // Populate asynchronously; show a placeholder until it loads, then
+    // update every div sharing this data-key (several rows can share the
+    // same category, e.g. multiple IAM users all failing MFA).
+    fetch(`${API}/api/remediation/free?source=${source}&category=${category}`)
+      .then(r => r.json())
+      .then(data => {
+        FREE_GUIDANCE_CACHE[key] = data.guidance;
+        document.querySelectorAll(`[data-key="${key}"]`).forEach(el => {
+          el.innerText = data.guidance;
+        });
+      });
+    return "Loading guidance...";
+  }
+  return FREE_GUIDANCE_CACHE[key];
+}
+
+async function getAIGuidance(rowId, source, category, findingJsonEncoded) {
+  const apiKey = document.getElementById("anthropicKey").value.trim();
+  if (!apiKey) { alert("Enter your Anthropic API key above to use AI-tailored guidance."); return; }
+  const finding = JSON.parse(decodeURIComponent(findingJsonEncoded));
+  const freeDiv = document.getElementById(`${rowId}-free`);
+  freeDiv.innerText = "Generating AI guidance...";
+  try {
+    const resp = await fetch(`${API}/api/remediation/ai`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source, category, finding_detail: finding, api_key: apiKey }),
+    });
+    const data = await resp.json();
+    if (data.guidance) {
+      freeDiv.innerHTML = `<strong>AI:</strong> ${data.guidance}`;
+    } else {
+      freeDiv.innerText = `Error: ${data.detail || "unknown error"}`;
+    }
+  } catch (e) {
+    freeDiv.innerText = `Error: ${e}`;
+  }
+}
+
+async function generateReport() {
+  const apiKey = document.getElementById("anthropicKey").value.trim();
+  if (!apiKey) { alert("Enter your Anthropic API key above to generate a report."); return; }
+  const out = document.getElementById("report-output");
+  out.innerHTML = "<p class='empty'>Generating executive report...</p>";
+  try {
+    const resp = await fetch(`${API}/api/report/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: apiKey }),
+    });
+    const data = await resp.json();
+    if (data.report) {
+      out.innerHTML = `<div class="section" style="background:#f6f8fa;white-space:pre-wrap">${data.report}</div>`;
+    } else {
+      out.innerHTML = `<p class='empty'>Error: ${data.detail || "unknown error"}</p>`;
+    }
+  } catch (e) {
+    out.innerHTML = `<p class='empty'>Error: ${e}</p>`;
+  }
+}
+
 function renderSection(sectionId, title, report) {
   const el = document.getElementById(sectionId);
+  const source = sectionId.startsWith("aws") ? "aws" : "github";
   if (!report) {
     el.innerHTML = `<h2>${title}</h2><p class="empty">No data yet.</p>`;
     return;
@@ -108,7 +199,7 @@ function renderSection(sectionId, title, report) {
     if (key === "collected_at") return;
     html += `<h3>${key.replace(/_/g, " ")}</h3>`;
     html += `<p class="summary">${value.summary || ""}</p>`;
-    html += renderTable(value.details);
+    html += renderTable(value.details, source, key);
   });
   el.innerHTML = html;
 }
