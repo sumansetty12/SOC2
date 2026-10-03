@@ -41,10 +41,26 @@ def _poll_aws():
     monitor = CloudTrailMonitor(region=_state["region"])
     result = monitor.poll_recent_events(lookback_minutes=_state["lookback_minutes"])
     events_found = result.get("events_found", 0)
+    poll_status = result.get("status", "OK")
     triggered = events_found > 0
 
     db.record_poll_run("aws", events_found, triggered)
     _state["last_poll_at"] = datetime.now(timezone.utc).isoformat()
+    _state["last_aws_poll_status"] = poll_status
+
+    if poll_status == "ERROR":
+        # Every lookup failed — most likely a missing cloudtrail:LookupEvents
+        # IAM permission. Record this as a visible check-history entry so
+        # it's impossible to mistake for "nothing happened".
+        error_codes = sorted({e["error_code"] for e in result.get("errors", [])})
+        db.record_check(
+            source="aws",
+            trigger_reason="CloudTrail polling failed",
+            result=result,
+            summary=f"ERROR: could not query CloudTrail ({', '.join(error_codes)}). "
+                    f"Check that the IAM policy includes cloudtrail:LookupEvents.",
+        )
+        return
 
     if triggered:
         collector = AWSEvidenceCollector(region_name=_state["region"])

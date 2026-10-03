@@ -46,6 +46,7 @@ class CloudTrailMonitor:
             start_time = datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)
 
             found_events = []
+            errors = []
             for event_name in RELEVANT_EVENT_NAMES:
                 try:
                     resp = client.lookup_events(
@@ -63,16 +64,26 @@ class CloudTrailMonitor:
                             "username": e.get("Username"),
                             "resources": [r.get("ResourceName") for r in e.get("Resources", [])],
                         })
-                except ClientError:
-                    # A single event-name lookup failing (e.g. throttling)
-                    # shouldn't abort the whole poll — skip and continue.
-                    continue
+                except ClientError as e:
+                    # IMPORTANT: a lookup failure (e.g. AccessDenied because
+                    # cloudtrail:LookupEvents isn't granted) must NOT be
+                    # silently treated as "no activity" — that produces a
+                    # false-clean result indistinguishable from an honest
+                    # zero. Record it explicitly instead.
+                    code = e.response.get("Error", {}).get("Code", "Unknown")
+                    errors.append({"event_name": event_name, "error_code": code})
+
+            # If every single lookup failed (e.g. missing IAM permission),
+            # treat this poll as erroed, not as a clean "0 events found".
+            all_failed = len(errors) == len(RELEVANT_EVENT_NAMES)
 
             return {
                 "polled_at": datetime.now(timezone.utc).isoformat(),
                 "lookback_minutes": lookback_minutes,
                 "events_found": len(found_events),
                 "events": found_events,
+                "errors": errors,
+                "status": "ERROR" if all_failed else ("PARTIAL" if errors else "OK"),
             }
         except Exception as e:
             return {"error": str(e), "events_found": 0, "events": []}

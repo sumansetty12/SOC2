@@ -206,7 +206,9 @@ async function loadMonitoringHistory() {
     } else {
       html += "<table><thead><tr><th>Checked at</th><th>Source</th><th>Trigger</th><th>Summary</th></tr></thead><tbody>";
       data.check_history.forEach(row => {
-        html += `<tr><td>${row.checked_at}</td><td>${row.source}</td><td>${row.trigger_reason}</td><td>${row.summary}</td></tr>`;
+        const isError = row.summary && row.summary.startsWith("ERROR");
+        const style = isError ? ' style="color:#cf222e;font-weight:600"' : '';
+        html += `<tr><td>${row.checked_at}</td><td>${row.source}</td><td>${row.trigger_reason}</td><td${style}>${row.summary}</td></tr>`;
       });
       html += "</tbody></table>";
     }
