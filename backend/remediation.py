@@ -77,10 +77,38 @@ def _call_claude(api_key: str, prompt: str, max_tokens: int) -> dict:
         return {"error": str(e)}
 
 
-def get_ai_guidance(source: str, category: str, finding_detail: dict, api_key: str) -> dict:
+def _call_openai(api_key: str, prompt: str, max_tokens: int) -> dict:
+    try:
+        import openai
+    except ImportError:
+        return {"error": "openai package not installed. Run: pip install openai"}
+
+    try:
+        client = openai.OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.choices[0].message.content
+        return {"text": text}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _call_llm(provider: str, api_key: str, prompt: str, max_tokens: int) -> dict:
+    """Dispatches to the chosen provider. Defaults to Anthropic if unspecified."""
+    if provider == "openai":
+        return _call_openai(api_key, prompt, max_tokens)
+    if provider == "anthropic" or not provider:
+        return _call_claude(api_key, prompt, max_tokens)
+    return {"error": f"Unknown provider '{provider}'. Use 'anthropic' or 'openai'."}
+
+
+def get_ai_guidance(source: str, category: str, finding_detail: dict, api_key: str, provider: str = "anthropic") -> dict:
     """
     Tailored remediation guidance for one specific finding, using the
-    user's own Anthropic API key.
+    user's own API key for their chosen provider ('anthropic' or 'openai').
     """
     prompt = (
         "You are a security compliance assistant. A SOC2 evidence-collection tool "
@@ -91,13 +119,13 @@ def get_ai_guidance(source: str, category: str, finding_detail: dict, api_key: s
         "Name the exact resource from the detail above where possible. "
         "Do not use generic boilerplate — be concrete about this specific finding."
     )
-    result = _call_claude(api_key, prompt, max_tokens=400)
+    result = _call_llm(provider, api_key, prompt, max_tokens=400)
     if "error" in result:
         return result
-    return {"guidance": result["text"], "source": "ai"}
+    return {"guidance": result["text"], "source": "ai", "provider": provider}
 
 
-def generate_security_report(aws_report: dict, github_report: dict, api_key: str) -> dict:
+def generate_security_report(aws_report: dict, github_report: dict, api_key: str, provider: str = "anthropic") -> dict:
     """
     Executive-readable, plain-English security posture summary for a
     non-technical small-business owner, generated from real findings.
@@ -111,7 +139,7 @@ def generate_security_report(aws_report: dict, github_report: dict, api_key: str
         "recommendation. Avoid acronyms where possible; explain any you must use.\n\n"
         f"AWS findings:\n{aws_report}\n\nGitHub findings:\n{github_report}"
     )
-    result = _call_claude(api_key, prompt, max_tokens=800)
+    result = _call_llm(provider, api_key, prompt, max_tokens=800)
     if "error" in result:
         return result
     return {"report": result["text"]}

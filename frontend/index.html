@@ -57,7 +57,11 @@
     <h2>AI-Enhanced Guidance (optional)</h2>
     <p class="summary">Every failing finding below already includes free, specific fix-it guidance. If you provide your own Anthropic API key, you can also get AI-tailored guidance per finding and a full plain-English executive report — entirely optional, never stored.</p>
     <div class="controls">
-      <input id="anthropicKey" placeholder="Anthropic API key (optional)" type="password" style="min-width:320px" />
+      <select id="llmProvider" style="padding:0.5rem;border:1px solid var(--border);border-radius:6px">
+        <option value="anthropic">Anthropic (Claude)</option>
+        <option value="openai">OpenAI (GPT)</option>
+      </select>
+      <input id="anthropicKey" placeholder="API key (optional)" type="password" style="min-width:280px" />
       <button onclick="generateReport()">Generate Executive Report</button>
     </div>
     <div id="report-output"></div>
@@ -144,15 +148,16 @@ function getFreeGuidanceText(source, category) {
 
 async function getAIGuidance(rowId, source, category, findingJsonEncoded) {
   const apiKey = document.getElementById("anthropicKey").value.trim();
-  if (!apiKey) { alert("Enter your Anthropic API key above to use AI-tailored guidance."); return; }
+  const provider = document.getElementById("llmProvider").value;
+  if (!apiKey) { alert("Enter your API key above to use AI-tailored guidance."); return; }
   const finding = JSON.parse(decodeURIComponent(findingJsonEncoded));
   const freeDiv = document.getElementById(`${rowId}-free`);
-  freeDiv.innerText = "Generating AI guidance...";
+  freeDiv.innerText = `Generating AI guidance (${provider})...`;
   try {
     const resp = await fetch(`${API}/api/remediation/ai`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source, category, finding_detail: finding, api_key: apiKey }),
+      body: JSON.stringify({ source, category, finding_detail: finding, api_key: apiKey, provider }),
     });
     const data = await resp.json();
     if (data.guidance) {
@@ -167,14 +172,15 @@ async function getAIGuidance(rowId, source, category, findingJsonEncoded) {
 
 async function generateReport() {
   const apiKey = document.getElementById("anthropicKey").value.trim();
-  if (!apiKey) { alert("Enter your Anthropic API key above to generate a report."); return; }
+  const provider = document.getElementById("llmProvider").value;
+  if (!apiKey) { alert("Enter your API key above to generate a report."); return; }
   const out = document.getElementById("report-output");
-  out.innerHTML = "<p class='empty'>Generating executive report...</p>";
+  out.innerHTML = `<p class='empty'>Generating executive report (${provider})...</p>`;
   try {
     const resp = await fetch(`${API}/api/report/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: apiKey }),
+      body: JSON.stringify({ api_key: apiKey, provider }),
     });
     const data = await resp.json();
     if (data.report) {

@@ -125,11 +125,12 @@ class AIRemediationRequest(BaseModel):
     category: str
     finding_detail: dict
     api_key: str
+    provider: str = "anthropic"
 
 
 @app.post("/api/remediation/ai")
 def remediation_ai(req: AIRemediationRequest):
-    result = remediation.get_ai_guidance(req.source, req.category, req.finding_detail, req.api_key)
+    result = remediation.get_ai_guidance(req.source, req.category, req.finding_detail, req.api_key, req.provider)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
@@ -137,6 +138,7 @@ def remediation_ai(req: AIRemediationRequest):
 
 class ReportRequest(BaseModel):
     api_key: str
+    provider: str = "anthropic"
 
 
 @app.post("/api/report/generate")
@@ -147,7 +149,7 @@ def generate_report(req: ReportRequest):
     if not aws_report and not github_report:
         raise HTTPException(status_code=400, detail="No AWS or GitHub evidence collected yet — run a collection first.")
 
-    result = remediation.generate_security_report(aws_report, github_report, req.api_key)
+    result = remediation.generate_security_report(aws_report, github_report, req.api_key, req.provider)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
