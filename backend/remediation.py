@@ -41,6 +41,13 @@ FREE_TIER_GUIDANCE = {
         "admin access is limited to people who genuinely need it. This supports CC6.1 "
         "evidence on the GitHub side."
     ),
+    ("aws", "credential_rotation"): (
+        "Rotate this access key: AWS Console -> IAM -> Users -> select the user -> "
+        "Security credentials tab -> create a new access key, update any application/script "
+        "using the old one, then deactivate and delete the old key. If this key isn't actually "
+        "in use anymore, delete it instead of rotating it. This satisfies CC6.2 (periodic access "
+        "review) and limits the damage window if a long-lived credential is ever leaked."
+    ),
     ("github", "change_management"): (
         "Add a branch protection rule: GitHub -> repo -> Settings -> Branches -> "
         "Add branch protection rule -> enter your default branch name (e.g. 'main') -> "

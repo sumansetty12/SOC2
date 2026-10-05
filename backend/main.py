@@ -19,6 +19,8 @@ from collectors.github_collector import GitHubEvidenceCollector
 import db as history_db
 import monitoring
 import remediation
+import pdf_export
+from fastapi.responses import Response
 
 app = FastAPI(title="SOC 2 Evidence Collector")
 history_db.init_db()
@@ -153,6 +155,25 @@ def generate_report(req: ReportRequest):
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+
+class PDFExportRequest(BaseModel):
+    report_text: str
+    provider: str = "anthropic"
+
+
+@app.post("/api/report/pdf")
+def export_report_pdf(req: PDFExportRequest):
+    try:
+        pdf_bytes = pdf_export.generate_report_pdf(req.report_text, generated_with=req.provider)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=soc2-security-report.pdf"},
+    )
 
 
 def _save_report(source: str, report: dict):

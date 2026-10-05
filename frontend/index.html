@@ -180,6 +180,9 @@ async function getAIGuidance(rowId, source, category, findingJsonEncoded) {
   }
 }
 
+let lastGeneratedReport = null;
+let lastGeneratedProvider = null;
+
 async function generateReport() {
   const apiKey = document.getElementById("anthropicKey").value.trim();
   const provider = document.getElementById("llmProvider").value;
@@ -194,12 +197,40 @@ async function generateReport() {
     });
     const data = await resp.json();
     if (data.report) {
-      out.innerHTML = `<div class="section" style="background:#f6f8fa;white-space:pre-wrap">${data.report}</div>`;
+      lastGeneratedReport = data.report;
+      lastGeneratedProvider = provider;
+      out.innerHTML = `
+        <div class="section" style="background:#f6f8fa;white-space:pre-wrap">${data.report}</div>
+        <button style="margin-top:0.5rem" onclick="downloadReportPDF()">Download as PDF</button>
+      `;
     } else {
       out.innerHTML = `<p class='empty'>Error: ${data.detail || "unknown error"}</p>`;
     }
   } catch (e) {
     out.innerHTML = `<p class='empty'>Error: ${e}</p>`;
+  }
+}
+
+async function downloadReportPDF() {
+  if (!lastGeneratedReport) { alert("Generate a report first."); return; }
+  try {
+    const resp = await fetch(`${API}/api/report/pdf`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ report_text: lastGeneratedReport, provider: lastGeneratedProvider }),
+    });
+    if (!resp.ok) { alert("PDF generation failed."); return; }
+    const blob = await resp.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "soc2-security-report.pdf";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (e) {
+    alert(`Download failed: ${e}`);
   }
 }
 

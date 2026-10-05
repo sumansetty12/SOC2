@@ -25,6 +25,7 @@ class AWSEvidenceCollector:
             "access_control": self.check_iam_access_control(),
             "logging_monitoring": self.check_cloudtrail_logging(),
             "security_config": self.check_security_config(),
+            "credential_rotation": self.check_access_key_rotation(),
         }
 
     # ---- Access Control (SOC 2 CC6.x) ----
@@ -113,5 +114,57 @@ class AWSEvidenceCollector:
 
         return {
             "summary": f"{len(findings)} bucket(s) evaluated",
+            "details": findings,
+        }
+
+    # ---- Credential Rotation / Access Review (SOC 2 CC6.2) ----
+    def check_access_key_rotation(self, stale_days: int = 90) -> dict:
+        """
+        Flags IAM access keys that are old or unused beyond `stale_days`.
+        Stale, un-rotated credentials are a common finding in real SOC 2
+        audits and a distinct control from basic MFA enforcement — this is
+        about periodic review and rotation of long-lived credentials
+        (CC6.2), not just whether a second factor exists (CC6.1).
+        """
+        findings = []
+        try:
+            users = self.iam.list_users()["Users"]
+            now = datetime.now(timezone.utc)
+
+            for user in users:
+                username = user["UserName"]
+                access_keys = self.iam.list_access_keys(UserName=username)["AccessKeyMetadata"]
+
+                for key in access_keys:
+                    if key["Status"] != "Active":
+                        continue
+
+                    key_id = key["AccessKeyId"]
+                    age_days = (now - key["CreateDate"]).days
+
+                    try:
+                        last_used_resp = self.iam.get_access_key_last_used(AccessKeyId=key_id)
+                        last_used_date = last_used_resp.get("AccessKeyLastUsed", {}).get("LastUsedDate")
+                        days_since_use = (now - last_used_date).days if last_used_date else None
+                    except ClientError:
+                        days_since_use = None
+
+                    is_stale = age_days >= stale_days or (days_since_use is not None and days_since_use >= stale_days)
+
+                    findings.append({
+                        "user": username,
+                        "access_key_id": key_id[-4:].rjust(len(key_id), "*"),  # mask all but last 4 chars
+                        "age_days": age_days,
+                        "days_since_last_used": days_since_use,
+                        "status": "FAIL" if is_stale else "PASS",
+                        "control": f"Active access keys should be rotated at least every {stale_days} days (SOC 2 CC6.2)",
+                    })
+        except ClientError as e:
+            findings.append({"error": str(e)})
+
+        total = len([f for f in findings if "status" in f])
+        passed = len([f for f in findings if f.get("status") == "PASS"])
+        return {
+            "summary": f"{passed}/{total} active access keys are within the {stale_days}-day rotation window",
             "details": findings,
         }

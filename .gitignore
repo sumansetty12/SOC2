@@ -1,15 +1,20 @@
 venv/
 __pycache__/
 *.pyc
+.env
+.DS_Store
 
-# Local runtime artifacts
+# Runtime artifacts — never commit
 backend/server.log
 backend/soc2_history.db
-backend/reports/
+backend/reports/*.json
+!backend/reports/.gitkeep
 
-# Deploy zips and their extracted contents — never meant to be committed
+# Local evidence screenshots and similar artifacts
+/Evidence/
+
+# Deploy zips and extracted update folders
 *.zip
 /cloudtrail-permission-fix/
 /files/
-/soc2-ai-remediation-update/
-/soc2-continuous-monitoring-update*/
+/soc2-*/
